@@ -1,1 +1,224 @@
-<iframe src="https://docs.google.com/forms/d/e/1FAIpQLSc2b-EA7898o6llLuqe4U7BKd5ijURnelF71c1H4MHwBcfacQ/viewform?embedded=true" width="640" height="1131" frameborder="0" marginheight="0" marginwidth="0">載入中…</iframe>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>夏日大作戰三部曲 - 中壢店營養諮詢登記</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; background-color: #f7f9fa; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #ff6b6b; margin-bottom: 5px; }
+        .date-title { text-align: center; font-size: 1.2em; color: #555; margin-bottom: 20px; }
+        .notice { background-color: #fff5f5; border-left: 4px solid #ff6b6b; padding: 10px; margin-bottom: 20px; font-size: 0.9em; }
+        .slot-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .slot-btn { padding: 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .slot-btn:hover:not(:disabled) { background: #ffe3e3; border-color: #ff6b6b; }
+        .slot-btn.selected { background: #ff6b6b; color: white; border-color: #ff6b6b; }
+        .slot-btn:disabled { background: #e9ecef; color: #adb5bd; border-color: #dee2e6; cursor: not-allowed; }
+        .form-section { display: none; border-top: 2px dashed #eee; padding-top: 20px; }
+        .timer { color: #e03131; font-weight: bold; text-align: center; margin-bottom: 15px; font-size: 1.1em; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        .submit-btn { width: 100%; padding: 14px; background: #2b8a3e; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; }
+        .submit-btn:hover { background: #237032; }
+        .loading-text { text-align: center; color: #666; font-style: italic; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🍉 夏日大作戰三部曲</h2>
+    <div class="date-title" id="event-date-display">6/15 中壢店實體營養諮詢登記</div>
+    
+    <div class="notice">
+        📌 <strong>預約規則：</strong>一個時段僅限一人登記。點選時段後系統將為您<strong>保留 5 分鐘</strong>填寫資料，超時名額將自動釋出。
+    </div>
+
+    <div id="loading-status" class="loading-text">🔄 正在即時連線中壢店課表，請稍候...</div>
+
+    <div class="slot-container" id="slots-wrapper"></div>
+
+    <div class="form-section" id="booking-form-section">
+        <div class="timer">⏳ 名額保留中，請於 <span id="countdown">05:00</span> 內完成填寫</div>
+        
+        <div class="form-group">
+            <label for="userName">本人姓名 *</label>
+            <input type="text" id="userName" placeholder="請輸入您的真實姓名" required>
+        </div>
+        <div class="form-group">
+            <label for="userPhone">本人電話 *</label>
+            <input type="tel" id="userPhone" placeholder="請輸入手機號碼" required>
+        </div>
+        <div class="form-group">
+            <label for="teacherName">中壢店上課老師名字 *</label>
+            <input type="text" id="teacherName" placeholder="請輸入您平時上課的老師姓名" required>
+        </div>
+        
+        <button class="submit-btn" id="submit-btn-text" onclick="submitBooking()">確認送出登記</button>
+    </div>
+</div>
+
+<script>
+    // ================== 未來可自由修正的設定區 ==================
+    const eventDate = "2026-06-15"; // 活動日期
+    
+    // 貼上你在 Google Apps Script 部署後得到的專屬 Web App URL
+    const googleScriptURL = "https://script.google.com/macros/s/AKfycbw0L-HyFk9ndm-o08I37JJOgNfLn5O7O9n65rwB0LzQru5enAGoS04Fw8Tr02js7l6U5g/exec";
+    
+    // 本次有開放的時段
+    const availableSlots = [
+        "10:00-11:00", "11:00-12:00", "14:00-15:00", "15:00-16:00", 
+        "16:00-17:00", "17:00-18:00", "18:00-19:00", "20:00-21:00", "21:00-22:00"
+    ];
+    // ==========================================================
+
+    let alreadyBookedSlots = []; 
+    let selectedSlot = null;
+    let countdownTimer = null;
+
+    // 網頁一打開，先去 Google Excel 撈取最新已被預約的時段
+    function fetchBookedSlots() {
+        document.getElementById('loading-status').style.display = 'block';
+        
+        fetch(googleScriptURL)
+        .then(res => res.json())
+        .then(data => {
+            // 把 Excel 裡面讀到的已被登記時段存起來
+            alreadyBookedSlots = data.bookedSlots || [];
+            document.getElementById('loading-status').style.display = 'none';
+            initSlots(); // 根據最新資料渲染時段按鈕
+        })
+        .catch(err => {
+            console.error("無法讀取資料庫:", err);
+            document.getElementById('loading-status').innerText = "❌ 課表載入失敗，請重新整理網頁。";
+        });
+    }
+
+    // 初始化建立全時段按鈕
+    function initSlots() {
+        const wrapper = document.getElementById('slots-wrapper');
+        wrapper.innerHTML = '';
+        
+        for (let h = 10; h < 22; h++) {
+            let start = `${h}:00`;
+            let end = `${h+1}:00`;
+            let slotText = `${start}-${end}`;
+            
+            const btn = document.createElement('button');
+            btn.className = 'slot-btn';
+            btn.innerText = slotText;
+            btn.id = `btn-${slotText}`;
+            
+            // 檢查是否在「本次開放名單」中，且「尚未被完全預約」
+            if (!availableSlots.includes(slotText)) {
+                btn.disabled = true;
+                btn.innerText += " (未開放)";
+            } else if (alreadyBookedSlots.includes(slotText)) {
+                btn.disabled = true;
+                btn.innerText += " (已額滿)";
+            } else {
+                btn.onclick = () => selectSlot(slotText);
+            }
+            
+            wrapper.appendChild(btn);
+        }
+    }
+
+    // 當使用者點選某一時段
+    function selectSlot(slot) {
+        clearInterval(countdownTimer);
+        
+        document.querySelectorAll('.slot-btn').forEach(btn => btn.classList.remove('selected'));
+        selectedSlot = slot;
+        document.getElementById(`btn-${slot}`).classList.add('selected');
+        
+        document.getElementById('booking-form-section').style.display = 'block';
+        startTimer(5 * 60); // 開啟5分鐘鎖定倒數
+    }
+
+    // 5分鐘倒數計時
+    function startTimer(duration) {
+        let timer = duration, minutes, seconds;
+        const display = document.getElementById('countdown');
+        
+        countdownTimer = setInterval(function () {
+            minutes = parseInt(timer / 60, 10);
+            seconds = parseInt(timer % 60, 10);
+            minutes = minutes < 10 ? "0" + minutes : minutes;
+            seconds = seconds < 10 ? "0" + seconds : seconds;
+
+            display.textContent = minutes + ":" + seconds;
+
+            if (--timer < 0) {
+                clearInterval(countdownTimer);
+                alert("⏳ 填寫時間已超過 5 分鐘！該時段名額已自動釋出，請重新選擇。");
+                resetForm();
+            }
+        }, 1000);
+    }
+
+    function resetForm() {
+        document.getElementById('booking-form-section').style.display = 'none';
+        document.querySelectorAll('.slot-btn').forEach(btn => btn.classList.remove('selected'));
+        selectedSlot = null;
+        document.getElementById('userName').value = '';
+        document.getElementById('userPhone').value = '';
+        document.getElementById('teacherName').value = '';
+    }
+
+    // 送出登記資料並寫入 Google 試算表
+    function submitBooking() {
+        const name = document.getElementById('userName').value.trim();
+        const phone = document.getElementById('userPhone').value.trim();
+        const teacher = document.getElementById('teacherName').value.trim();
+
+        if (!name || !phone || !teacher) {
+            alert("請填寫所有必填欄位！");
+            return;
+        }
+
+        // 防止重複點擊送出
+        const submitBtn = document.getElementById('submit-btn-text');
+        submitBtn.disabled = true;
+        submitBtn.innerText = "正在傳送登記資料...";
+
+        clearInterval(countdownTimer);
+
+        const resultData = {
+            "活動日期": eventDate,
+            "預約時段": selectedSlot,
+            "學員姓名": name,
+            "聯絡電話": phone,
+            "上課老師": teacher,
+            "登記時間": new Date().toLocaleString()
+        };
+
+        // 發送 POST 請求寫入 Google Sheet
+        fetch(googleScriptURL, {
+            method: "POST",
+            method: "POST",
+            mode: "no-cors", // 避免瀏覽器跨網域安全性阻擋
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(resultData)
+        })
+        .then(() => {
+            alert(`🎉 預約成功！\n\n系統已成功登記【${selectedSlot}】。\n請準時前往中壢店參與諮詢！`);
+            submitBtn.disabled = false;
+            submitBtn.innerText = "確認送出登記";
+            resetForm();
+            fetchBookedSlots(); // 重新拉取一次課表，確保該時段在畫面上立刻變灰
+        })
+        .catch(err => {
+            alert("系統傳送失敗，請檢查網路或聯絡中壢店管理員。");
+            submitBtn.disabled = false;
+            submitBtn.innerText = "確認送出登記";
+        });
+    }
+
+    // 網頁一載入，立刻執行撈取課表
+    window.onload = fetchBookedSlots;
+</script>
+
+</body>
+</html>
